@@ -1,0 +1,29 @@
+[project]
+name = "wd-probe"
+version = "0.1.0"
+description = "WiFi-Diagnose probe — capture and reduce network telemetry at the edge"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.7",
+    "typer>=0.12",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "scapy>=2.5", "ruff>=0.5"]
+
+[project.scripts]
+wd-probe = "wd_probe.cli:app"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
