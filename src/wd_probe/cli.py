@@ -11,7 +11,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from wd_probe.capabilities import list_wireless_interfaces, probe_adapter
+from wd_probe.capabilities import probe_adapter, survey_capable_adapters
 from wd_probe.capture.wireless import WirelessCaptureEngine
 from wd_probe.contracts import (
     CaptureKind,
@@ -38,21 +38,36 @@ def capabilities(
     iface: Optional[str] = typer.Option(None, "--iface", "-i", help="Adapter to probe."),
 ) -> None:
     """Report honestly what this machine's wireless adapters can do."""
-    ifaces = [iface] if iface else list_wireless_interfaces()
-    if not ifaces:
+    if iface:
+        infos, advice = [probe_adapter(iface)], []
+    else:
+        infos, advice = survey_capable_adapters()
+
+    if not infos:
         console.print("[red]No wireless interfaces found.[/] Is `iw` installed?")
         raise typer.Exit(1)
 
-    for name in ifaces:
-        info = probe_adapter(name)
-        colour = "green" if info.monitor_capable else "red"
-        body = [f"[bold]driver:[/] {info.driver or 'unknown'}",
-                f"[bold]bands:[/] {'+'.join(info.bands) + ' GHz' if info.bands else 'unknown'}",
-                f"[bold]monitor mode:[/] [{colour}]{'yes' if info.monitor_capable else 'NO'}[/]",
-                f"[bold]channels seen:[/] {len(info.freqs_mhz)}"]
+    for info in infos:
+        if info.monitor_reliable is True:
+            colour = "green"
+        elif info.monitor_reliable is False or not info.monitor_advertised:
+            colour = "red"
+        else:
+            colour = "yellow"
+
+        kind = {"usb": "USB dongle", "pci": "built-in card"}.get(info.bus or "", "unknown bus")
+        body = [
+            f"[bold]driver:[/] {info.driver or 'unknown'}   [dim]({kind})[/]",
+            f"[bold]bands:[/] {'+'.join(info.bands) + ' GHz' if info.bands else 'unknown'}",
+            f"[bold]monitor mode:[/] [{colour}]{info.monitor_verdict}[/]",
+            f"[bold]channels seen:[/] {len(info.freqs_mhz)}",
+        ]
         for n in info.notes:
             body.append(f"\n[yellow]![/] {n}")
-        console.print(Panel("\n".join(body), title=f"[bold]{name}[/]", expand=False))
+        console.print(Panel("\n".join(body), title=f"[bold]{info.name}[/]", expand=False))
+
+    for a in advice:
+        console.print(f"\n[red bold]→[/] {a}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -196,19 +211,34 @@ def report(
 
     cp = json.loads(srow["capture_point"])
     w = cp.get("wireless") or {}
-    valid = cp.get("rate_metrics_valid", True)
 
-    console.print(Panel(
-        f"[bold]{cp['description']}[/]\n"
-        f"kind={cp['kind']}  mode={w.get('mode')}  channel={w.get('channel')}\n"
-        f"rate metrics valid: "
-        f"[{'green' if valid else 'red'}]{valid}[/]",
-        title=session_id, expand=False,
-    ))
+    # The report must show what the reducer CONCLUDED, not what the operator
+    # declared. Those differ exactly when it matters most.
+    declared = cp.get("rate_metrics_valid", True)
+    valid, reason, freqs = declared, None, None
+    for r in sp.samples(session_id, SampleType.SESSION_QUALITY):
+        q = json.loads(r["payload"])
+        valid = q.get("effective_rate_metrics_valid", declared)
+        reason = q.get("suppression_reason")
+        freqs = q.get("distinct_freqs")
+        break
+
+    lines = [
+        f"[bold]{cp['description']}[/]",
+        f"kind={cp['kind']}  mode={w.get('mode')}  declared channel={w.get('channel')}",
+        f"rate metrics valid: [{'green' if valid else 'red'}]{valid}[/]",
+    ]
+    if declared and not valid:
+        lines.append("[red]declared valid by the operator — OVERRIDDEN by the data[/]")
+    if freqs is not None:
+        lines.append(f"frequencies observed: {freqs}")
+    console.print(Panel("\n".join(lines), title=session_id, expand=False))
+
     if not valid:
+        console.print(f"[yellow]Rate metrics suppressed — {reason}.[/]")
         console.print(
-            "[yellow]Rate metrics suppressed — this was a hopping capture, so "
-            "retry % and airtime % have no meaningful denominator.[/]\n"
+            "[yellow]retry % and airtime % need a complete observation of one "
+            "channel; a hopping radio gives them a random denominator.[/]\n"
         )
 
     # per-second table

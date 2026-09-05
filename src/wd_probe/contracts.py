@@ -250,6 +250,13 @@ class WifiFrameStat(BaseModel):
     frames_mgmt: int = 0
     frames_ctrl: int = 0
     frames_data: int = 0
+    # Frames tshark could not assign a type to — truncated radiotap, corrupt
+    # headers, frames the dissector rejects. Real captures always contain a
+    # few. Counting them explicitly keeps
+    #     mgmt + ctrl + data + unparseable == frames_total
+    # true, so a reader summing the columns is never quietly short. A rising
+    # share of these is itself a signal: bad RF, or a driver mangling headers.
+    frames_unparseable: int = 0
     beacon_count: int = 0
     deauth_count: int = 0
     disassoc_count: int = 0

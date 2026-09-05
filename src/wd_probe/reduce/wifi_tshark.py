@@ -51,6 +51,11 @@ FIELDS = [
     "wlan_radio.duration",
 ]
 
+# A genuinely locked capture reports ONE frequency. Two is tolerable — some
+# drivers report primary and centre frequency on 40 MHz. More than that and
+# the radio moved, whatever the operator believed they configured.
+MAX_FREQS_FOR_LOCKED = 2
+
 
 def freq_to_channel(freq_mhz: int) -> int | None:
     """Map a centre frequency to a channel number."""
@@ -91,9 +96,9 @@ class _Bucket:
     """Mutable accumulator for one second of frames."""
 
     __slots__ = (
-        "frames", "retry", "mgmt", "ctrl", "data", "beacon", "deauth",
-        "disassoc", "probe_req", "airtime_us", "bytes_total", "rssis",
-        "stations", "freqs",
+        "frames", "retry", "mgmt", "ctrl", "data", "unparseable", "beacon",
+        "deauth", "disassoc", "probe_req", "airtime_us", "bytes_total",
+        "rssis", "stations", "freqs",
     )
 
     def __init__(self) -> None:
@@ -102,6 +107,7 @@ class _Bucket:
         self.mgmt = 0
         self.ctrl = 0
         self.data = 0
+        self.unparseable = 0
         self.beacon = 0
         self.deauth = 0
         self.disassoc = 0
@@ -170,11 +176,11 @@ class WifiTsharkReducer:
             raise ReducerError(f"pcap not found: {pcap}")
 
         cp = session.capture_point
-        # The hopping guard. Read once here, then it travels with every row.
-        valid = cp.rate_metrics_valid
+        declared_valid = cp.rate_metrics_valid
 
         buckets: dict[int, _Bucket] = defaultdict(_Bucket)
         stations: dict[str, _StationBucket] = defaultdict(_StationBucket)
+        observed_freqs: set[int] = set()
         total_frames = 0
         total_bytes = 0
 
@@ -210,6 +216,7 @@ class WifiTsharkReducer:
                 b.rssis.append(rssi)
             if freq is not None:
                 b.freqs.append(freq)
+                observed_freqs.add(freq)
 
             if ftype == TYPE_MGMT:
                 b.mgmt += 1
@@ -225,6 +232,9 @@ class WifiTsharkReducer:
                 b.ctrl += 1
             elif ftype == TYPE_DATA:
                 b.data += 1
+            else:
+                # no parseable type — malformed/truncated radiotap
+                b.unparseable += 1
 
             if ta_raw:
                 h = _hash_mac(ta_raw, self.mac_salt)
@@ -245,18 +255,52 @@ class WifiTsharkReducer:
                 "is radiotap (LINKTYPE 127)."
             )
 
+        # ── detect hopping from the DATA, overriding what was declared ──────
+        #
+        # ADR-19 suppresses rate metrics on hopping captures. Until now that
+        # guard fired only when a human remembered to pass --hopping, which
+        # means it was not a guard at all — it was a comment. The first real
+        # capture arrived declared as "locked" and had visited 29 frequencies
+        # across two bands, and the reducer cheerfully published a retry
+        # percentage computed over a random sample of time.
+        #
+        # The radio's actual behaviour is right there in every radiotap
+        # header. Measure it. Never take the operator's word for a fact the
+        # data already contains.
+        detected_hopping = len(observed_freqs) > MAX_FREQS_FOR_LOCKED
+        valid = declared_valid and not detected_hopping
+
+        suppression_reason: str | None = None
+        if detected_hopping and declared_valid:
+            suppression_reason = (
+                f"declared locked, but the radio visited {len(observed_freqs)} "
+                f"frequencies during the capture — rate metrics suppressed"
+            )
+        elif not declared_valid:
+            suppression_reason = "capture point declared hopping mode"
+
         # ── emit per-second frame stats ─────────────────────────────────────
         for sec in sorted(buckets):
             b = buckets[sec]
             freq = max(set(b.freqs), key=b.freqs.count) if b.freqs else None
+            # On a hopping capture the modal frequency of a one-second bucket
+            # is an artefact of the hop schedule, not a property of the link.
+            # Reporting it as "the channel" invents a fact.
+            report_channel = None
+            if not detected_hopping:
+                report_channel = (
+                    freq_to_channel(freq) if freq
+                    else (cp.wireless.channel if cp.wireless else None)
+                )
             stat = WifiFrameStat(
-                channel=freq_to_channel(freq) if freq else cp.wireless.channel if cp.wireless else None,
+                channel=report_channel,
                 freq_mhz=freq,
                 frames_total=b.frames,
                 frames_retry=b.retry,
                 frames_mgmt=b.mgmt,
                 frames_ctrl=b.ctrl,
                 frames_data=b.data,
+                frames_unparseable=b.unparseable,
                 beacon_count=b.beacon,
                 deauth_count=b.deauth,
                 disassoc_count=b.disassoc,
@@ -298,13 +342,23 @@ class WifiTsharkReducer:
                 payload=st.model_dump(),
             )
 
-        # ── session quality ─────────────────────────────────────────────────
+        # ── session quality + what we discovered about the capture itself ───
         session.quality.packets_captured = total_frames
         session.quality.bytes_captured = total_bytes
+        payload = session.quality.model_dump()
+        payload.update({
+            "observed_freqs_mhz": sorted(observed_freqs),
+            "distinct_freqs": len(observed_freqs),
+            "frames_unparseable": sum(x.unparseable for x in buckets.values()),
+            "declared_rate_metrics_valid": declared_valid,
+            "effective_rate_metrics_valid": valid,
+            "hopping_detected_from_data": detected_hopping,
+            "suppression_reason": suppression_reason,
+        })
         yield Envelope(
             session_id=session.id,
             capture_point_id=cp.id,
             sample_type=SampleType.SESSION_QUALITY,
             ts=window_ts,
-            payload=session.quality.model_dump(),
+            payload=payload,
         )

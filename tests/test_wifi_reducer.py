@@ -84,7 +84,8 @@ def test_frame_type_split_is_exhaustive(reduced):
     _, frame, _, _ = reduced
     for e in frame:
         p = e.payload
-        assert p["frames_mgmt"] + p["frames_ctrl"] + p["frames_data"] == p["frames_total"]
+        assert (p["frames_mgmt"] + p["frames_ctrl"] + p["frames_data"]
+                + p["frames_unparseable"]) == p["frames_total"]
 
 
 def test_channel_derived_from_radiotap_frequency(reduced):

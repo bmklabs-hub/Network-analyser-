@@ -55,13 +55,60 @@ tests/
 On Kali, Ubuntu, or Debian:
 
 ```bash
-sudo apt install -y tshark wireshark-common iw ethtool python3-pip
+sudo apt install -y tshark wireshark-common iw ethtool python3-venv python3-pip
 sudo dpkg-reconfigure wireshark-common      # answer YES: non-root capture
 sudo usermod -aG wireshark $USER            # then log out and back in
 
 cd wd-probe
+python3 -m venv .venv                       # REQUIRED — see below
+source .venv/bin/activate
 pip install -e ".[dev]"
 ```
+
+### The venv is not optional
+
+Modern Debian and Kali implement **PEP 668**: the system Python is marked
+*externally managed*, and `pip install` outside a virtual environment fails
+with `error: externally-managed-environment`.
+
+That guard exists because `apt` also installs Python packages, and pip
+overwriting them can break system tools that depend on specific versions — on
+Kali, that could be part of the security toolchain. `--break-system-packages`
+silences the error and is named accurately: use it in a throwaway container,
+never on a machine you care about.
+
+**No `--system-site-packages` needed.** This project imports nothing from the
+system Python; `tshark`, `dumpcap` and `iw` are external binaries invoked via
+`subprocess`, so a clean isolated venv is exactly right.
+
+### venv + sudo: the gotcha
+
+`sudo` resets `PATH`, so `sudo wd-probe …` will not find the venv's command —
+and if it finds one, it is the wrong interpreter. **Do not run this tool under
+sudo.** Split the privileged part out instead:
+
+```bash
+# once, as root — the only steps that genuinely need privilege
+sudo ip link set wlan1 down
+sudo iw dev wlan1 set monitor control
+sudo ip link set wlan1 up
+sudo iw dev wlan1 set channel 36 HT20
+
+# then as your normal user, venv active
+wd-probe capture -i wlan1 -c 36 -d 120
+```
+
+Capture itself needs no root: `dpkg-reconfigure wireshark-common` gives
+`dumpcap` the `CAP_NET_RAW`/`CAP_NET_ADMIN` file capabilities, and membership of
+the `wireshark` group lets you use it.
+
+`scripts/capture-fixture.sh` is plain bash calling `iw` and `dumpcap` directly —
+no Python, no venv — so `sudo ./scripts/capture-fixture.sh` is correct there.
+
+> 🎓 **Least privilege, applied to a workflow rather than a firewall.** Four
+> commands need root; the application does not. Running the whole thing as root
+> because one step needs it is the same instinct as giving a service account
+> domain admin because one operation needed it.
 
 ## Verify it works — no radio needed
 

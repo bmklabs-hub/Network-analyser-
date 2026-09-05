@@ -119,24 +119,76 @@ class WirelessCaptureEngine:
 
     # ── capture ─────────────────────────────────────────────────────────────
 
+    def current_channel(self) -> int | None:
+        """Which channel is the adapter actually on right now?
+
+        Returns None if we cannot tell — `iw` missing, interface absent, or no
+        channel line. Callers must treat None as "unknown", never as "wrong":
+        a probe that cannot measure something must not assert a value for it.
+        """
+        try:
+            out = subprocess.run(
+                ["iw", "dev", self.iface, "info"],
+                capture_output=True, text=True, timeout=10,
+            ).stdout
+        except (OSError, subprocess.SubprocessError):
+            return None
+        m = re.search(r"^\s*channel\s+(\d+)", out, re.M)
+        return int(m.group(1)) if m else None
+
     def set_channel(self) -> None:
+        """Put the radio on the requested channel.
+
+        Changing channel needs CAP_NET_ADMIN, which an unprivileged user does
+        not have — but *capturing* only needs the `wireshark` group. So the
+        normal, recommended way to run this tool is:
+
+            sudo iw dev wlan1 set channel 36 HT20     # once, as root
+            wd-probe capture -i wlan1 -c 36           # as your normal user
+
+        That keeps the privileged step small and explicit, and it means you are
+        never running the whole Python application as root. So when we cannot
+        set the channel ourselves, we check whether it is *already* correct and
+        carry on if it is — refusing to work would be pedantry, not safety.
+        """
         if self.channel is None:
             return
+
+        if self.current_channel() == self.channel:
+            return  # already where we want to be — nothing to do
+
         width_arg = {20: "HT20", 40: "HT40+", 80: "80MHz", 160: "160MHz"}.get(
             self.width_mhz, "HT20"
         )
-        cmd = ["iw", "dev", self.iface, "set", "channel", str(self.channel), width_arg]
-        r = subprocess.run(cmd, capture_output=True, text=True)
-        if r.returncode != 0:
-            # fall back to plain 20 MHz — some drivers reject HT40 on some channels
-            r2 = subprocess.run(
-                ["iw", "dev", self.iface, "set", "channel", str(self.channel)],
-                capture_output=True, text=True,
+        attempts = [
+            ["iw", "dev", self.iface, "set", "channel", str(self.channel), width_arg],
+            # some drivers reject HT40/80 on some channels — fall back to 20 MHz
+            ["iw", "dev", self.iface, "set", "channel", str(self.channel)],
+        ]
+        last_err = ""
+        for cmd in attempts:
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            except FileNotFoundError:
+                raise CaptureError("`iw` not found — sudo apt install iw") from None
+            except subprocess.SubprocessError as exc:
+                last_err = str(exc)
+                continue
+            if r.returncode == 0:
+                return
+            last_err = (r.stderr or "").strip()
+
+        if self.current_channel() == self.channel:
+            return  # something else set it in the meantime; fine
+
+        if "not permitted" in last_err.lower() or "permission" in last_err.lower():
+            raise CaptureError(
+                f"Cannot change channel as an unprivileged user, and {self.iface} is "
+                f"on channel {self.current_channel()} rather than {self.channel}.\n"
+                f"Set it once as root, then re-run this command normally:\n"
+                f"    sudo iw dev {self.iface} set channel {self.channel} {width_arg}"
             )
-            if r2.returncode != 0:
-                raise CaptureError(
-                    f"could not set channel {self.channel}: {r.stderr.strip()}"
-                )
+        raise CaptureError(f"could not set channel {self.channel}: {last_err}")
 
     def capture(self, out_dir: Path, duration_s: int) -> CaptureSession:
         out_dir.mkdir(parents=True, exist_ok=True)
