@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}wd-server{% endblock %}</title>
+<style>
+  :root { --bg:#f7f7f5; --fg:#1d1d1b; --muted:#6b6b66; --line:#dcdcd6; --card:#fff;
+          --good:#1f7a3a; --warn:#9a6700; --bad:#b42318; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161615; --fg:#ececea; --muted:#a2a29c; --line:#34342f; --card:#1f1f1d;
+            --good:#5cc47a; --warn:#e3b341; --bad:#f2786b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex;
+           gap:16px; align-items:baseline; flex-wrap:wrap; }
+  header a { color:inherit; text-decoration:none; font-weight:600; }
+  header small { color:var(--muted); }
+  main { padding:20px; max-width:1200px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px;
+          padding:16px; margin-bottom:16px; overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; }
+  th, td { text-align:left; padding:6px 10px; border-bottom:1px solid var(--line);
+           white-space:nowrap; }
+  th { color:var(--muted); font-weight:500; font-size:13px; }
+  td.num, th.num { text-align:right; }
+  code, .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:99px; font-size:12px;
+          border:1px solid currentColor; }
+  .good { color:var(--good); } .warn { color:var(--warn); } .bad { color:var(--bad); }
+  .muted { color:var(--muted); }
+  .banner { border-left:4px solid var(--bad); padding:10px 14px; background:var(--card);
+            margin-bottom:16px; }
+  a { color:inherit; }
+</style>
+</head>
+<body>
+<header>
+  <a href="/">wd-server</a>
+  <small>WiFi-Diagnose · Phase 2 · v{{ version }} · lab use only — no login yet</small>
+</header>
+<main>{% block body %}{% endblock %}</main>
+</body>
+</html>

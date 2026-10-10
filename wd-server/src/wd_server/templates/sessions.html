@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Sessions · wd-server{% endblock %}
+{% block body %}
+{% if not ingest_enabled %}
+<div class="banner"><strong>Ingest is disabled.</strong> No probe tokens configured —
+  start the server with <code>WD_PROBE_TOKENS=&lt;probe-id&gt;=&lt;token&gt;</code>.</div>
+{% endif %}
+<div class="card">
+  <h2 style="margin-top:0">Capture sessions</h2>
+  {% if not sessions %}
+    <p class="muted">No sessions yet. On the probe: <code>wd-probe upload --server http://&lt;this-host&gt;:8000</code></p>
+  {% else %}
+  <table>
+    <thead><tr>
+      <th>Session</th><th>Started (UTC)</th><th>Probe</th><th>Kind</th>
+      <th>Declared</th><th class="num">Frames</th><th class="num">Loss %</th>
+      <th class="num">Samples</th><th>Verdict</th>
+    </tr></thead>
+    <tbody>
+    {% for s in sessions %}
+    <tr>
+      <td class="mono"><a href="/sessions/{{ s.id }}">{{ s.id }}</a></td>
+      <td class="mono">{{ s.started_at[:19] }}</td>
+      <td>{{ s.probe_id }}</td>
+      <td>{{ s.kind }}</td>
+      <td>{{ s.declared_mode or "—" }}{% if s.declared_channel %} · ch{{ s.declared_channel }}{% endif %}</td>
+      <td class="num">{{ s.frames }}</td>
+      <td class="num">{{ s.loss_pct }}</td>
+      <td class="num">{{ s.sample_count }}</td>
+      <td><span class="pill {{ s.verdict_class }}">{{ s.verdict }}</span>
+        {% if s.overridden %}<span class="bad" title="{{ s.suppression_reason }}"> · declared locked, data says hopping</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% endblock %}

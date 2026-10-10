@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}{{ s.id }} · wd-server{% endblock %}
+{% block body %}
+<p><a href="/">← all sessions</a></p>
+<div class="card">
+  <h2 style="margin-top:0" class="mono">{{ s.id }}</h2>
+  <p>{{ s.description }}</p>
+  <table style="width:auto">
+    <tr><th>Verdict</th><td><span class="pill {{ s.verdict_class }}">{{ s.verdict }}</span></td></tr>
+    <tr><th>Probe · site</th><td>{{ s.probe_id }} · {{ s.site_id }}</td></tr>
+    <tr><th>Declared</th><td>{{ s.kind }} · {{ s.declared_mode or "—" }}{% if s.declared_channel %} · ch{{ s.declared_channel }}{% endif %}</td></tr>
+    <tr><th>Frequencies observed</th><td>{{ s.distinct_freqs if s.distinct_freqs is not none else "—" }}</td></tr>
+    <tr><th>Frames · unparseable</th><td>{{ s.frames }} · {{ s.frames_unparseable }}</td></tr>
+    <tr><th>Loss</th><td>{{ s.loss_pct }} %</td></tr>
+    <tr><th>Started → ended (UTC)</th><td class="mono">{{ s.started_at[:19] }} → {{ (s.ended_at or "—")[:19] }}</td></tr>
+  </table>
+  {% if s.overridden %}
+  <div class="banner" style="margin:12px 0 0">
+    <strong>The operator declared this capture locked; the data says otherwise.</strong><br>
+    {{ s.suppression_reason }}. Retry % and airtime % are hidden because a hopping radio
+    gives them a random denominator.
+  </div>
+  {% elif s.effective_valid is false %}
+  <p class="warn">Rate metrics suppressed — {{ s.suppression_reason }}.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">Per-second frame stats {% if frames|length >= 300 %}<small class="muted">(first 300 s)</small>{% endif %}</h3>
+  <table>
+    <thead><tr><th>Time (UTC)</th><th class="num">Ch</th><th class="num">Frames</th>
+      <th class="num">Retry</th><th class="num">Retry %</th><th class="num">Airtime %</th>
+      <th class="num">Beacons</th><th class="num">Deauth</th><th class="num">Stations</th>
+      <th class="num">RSSI mean</th></tr></thead>
+    <tbody>
+    {% for f in frames %}
+    {% set rp = f.get('retry_pct') %}
+    <tr>
+      <td class="mono">{{ f.ts[11:19] }}</td>
+      <td class="num">{{ f.get('channel') or "—" }}</td>
+      <td class="num">{{ f.get('frames_total') }}</td>
+      <td class="num">{{ f.get('frames_retry') }}</td>
+      <td class="num {% if rp is not none %}{{ 'bad' if rp > 25 else ('warn' if rp > 10 else 'good') }}{% endif %}">{{ "%.1f"|format(rp) if rp is not none else "—" }}</td>
+      <td class="num">{{ "%.1f"|format(f.get('airtime_busy_pct')) if f.get('airtime_busy_pct') is not none else "—" }}</td>
+      <td class="num">{{ f.get('beacon_count') }}</td>
+      <td class="num">{{ f.get('deauth_count') }}</td>
+      <td class="num">{{ f.get('distinct_stations') }}</td>
+      <td class="num">{{ "%.0f"|format(f.get('rssi_mean_dbm')) if f.get('rssi_mean_dbm') is not none else "—" }}</td>
+    </tr>
+    {% else %}<tr><td colspan="10" class="muted">No frame stats uploaded.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">Top transmitters</h3>
+  <table>
+    <thead><tr><th>Station (hashed)</th><th class="num">Frames</th><th class="num">Retry %</th>
+      <th class="num">Bytes</th><th class="num">RSSI min / max</th></tr></thead>
+    <tbody>
+    {% for st in stations %}
+    <tr>
+      <td class="mono">{{ st.get('station_mac_hash') }}</td>
+      <td class="num">{{ st.get('frames') }}</td>
+      <td class="num">{{ "%.1f"|format(st.get('retry_pct')) if st.get('retry_pct') is not none else "—" }}</td>
+      <td class="num">{{ st.get('bytes_total') }}</td>
+      <td class="num">{{ st.get('rssi_min_dbm') }} / {{ st.get('rssi_max_dbm') }}</td>
+    </tr>
+    {% else %}<tr><td colspan="5" class="muted">No station stats uploaded.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -345,6 +345,12 @@ class WifiTsharkReducer:
         # ── session quality + what we discovered about the capture itself ───
         session.quality.packets_captured = total_frames
         session.quality.bytes_captured = total_bytes
+        # ADR-29 — the verdict goes on the session, not only into a sample.
+        session.quality.hopping_detected = detected_hopping
+        session.quality.effective_rate_metrics_valid = valid
+        session.quality.suppression_reason = suppression_reason
+        session.quality.distinct_freqs = len(observed_freqs)
+        session.quality.frames_unparseable = sum(x.unparseable for x in buckets.values())
         payload = session.quality.model_dump()
         payload.update({
             "observed_freqs_mhz": sorted(observed_freqs),

@@ -164,6 +164,18 @@ class CaptureQuality(BaseModel):
     drops_interface: int = 0       # NIC ring overrun — tune the driver
     drops_estimated: int = 0       # inferred (e.g. SPAN oversubscription)
 
+    # ── ADR-29: the reducer's VERDICT about this capture lives HERE ─────────
+    # The first version recorded these only inside a SESSION_QUALITY sample.
+    # The session row still claimed "locked, metrics valid", so the web page
+    # showed a 29-frequency capture as trustworthy while every unit test
+    # passed. A verdict must travel with the thing it judges — the session is
+    # what gets persisted, uploaded and displayed.
+    hopping_detected: bool = False
+    effective_rate_metrics_valid: bool | None = None   # None = not reduced yet
+    suppression_reason: str | None = None
+    distinct_freqs: int | None = None
+    frames_unparseable: int = 0
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def total_drops(self) -> int:

@@ -38,8 +38,10 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tshark
           tshark --version | head -1
 
-      - name: Install package
-        run: pip install -e ".[dev]"
+      - name: Install both packages (one repo, two deployables — ADR-26)
+        run: |
+          pip install -e ".[dev]"
+          pip install -e "./wd-server[dev]"
 
       - name: Regenerate fixture and confirm it is reproducible
         # The committed pcap must match what make_fixture.py produces. If it
@@ -50,13 +52,17 @@ jobs:
           cmp /tmp/committed.pcap tests/fixtures/wifi_lab.pcap \
             || (echo "::error::committed fixture differs from generator output"; exit 1)
 
-      - name: Run tests
+      - name: Run probe tests
         run: pytest -q
+
+      - name: Run server tests (incl. parity ADR-28 and end-to-end smoke test)
+        run: pytest -q wd-server/tests
 
       - name: Lint
         run: |
           pip install ruff
           ruff check src tests
+          (cd wd-server && ruff check src tests)
 
       - name: Smoke-test the CLI end to end
         run: |

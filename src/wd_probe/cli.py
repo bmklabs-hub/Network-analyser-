@@ -23,6 +23,7 @@ from wd_probe.contracts import (
 )
 from wd_probe.reduce.wifi_tshark import WifiTsharkReducer
 from wd_probe.spool import Spool
+from wd_probe.upload import Uploader, UploadError
 
 app = typer.Typer(add_completion=False, help="WiFi-Diagnose probe — capture and reduce.")
 console = Console()
@@ -123,6 +124,7 @@ def capture(
 
     if reduce_now and session.pcap_path:
         n = _reduce_into_spool(Path(session.pcap_path), session, sp)
+        sp.save_session(session)      # ADR-29: persist the verdict the reducer reached
         console.print(f"Reduced into [bold]{n}[/] samples. Session [bold]{session.id}[/]")
         console.print(f"  → wd-probe report {session.id}")
     sp.close()
@@ -283,6 +285,41 @@ def report(
             f"{p.get('rssi_min_dbm', '—')}/{p.get('rssi_max_dbm', '—')}",
         )
     console.print(st)
+    sp.close()
+
+
+@app.command()
+def upload(
+    server: str = typer.Option(
+        "http://127.0.0.1:8000", "--server", envvar="WD_SERVER_URL",
+        help="wd-server base URL.",
+    ),
+    token: str = typer.Option("", "--token", envvar="WD_PROBE_TOKEN",
+                              help="Probe bearer token."),
+    batch: int = typer.Option(500, "--batch"),
+    spool_path: str = typer.Option(DEFAULT_SPOOL, "--spool"),
+) -> None:
+    """Send everything not yet uploaded to wd-server. Safe to re-run."""
+    sp = Spool(spool_path)
+    before = sp.stats()["pending_upload"]
+    if before == 0:
+        console.print("Nothing to upload — spool is fully sent.")
+        sp.close()
+        raise typer.Exit()
+    try:
+        res = Uploader(sp, server, token, batch_size=batch).run()
+    except UploadError as e:
+        console.print(f"[red bold]Upload failed:[/] {e}")
+        console.print(f"[dim]{sp.stats()['pending_upload']} samples still waiting in the spool.[/]")
+        sp.close()
+        raise typer.Exit(1) from e
+    console.print(
+        f"Uploaded [bold]{res.samples_sent}[/] samples in {res.batches} batch(es) "
+        f"→ {server}  (duplicates ignored by server: {res.duplicates}, retries: {res.retries})"
+    )
+    for err in res.errors:
+        console.print(f"[yellow]![/] {err}")
+    console.print(f"pending now: {sp.stats()['pending_upload']}")
     sp.close()
 
 
