@@ -77,7 +77,11 @@ class WirelessCaptureEngine:
         if not info.present:
             problems.append(f"interface {self.iface} not found")
             return problems
-        if not info.monitor_capable:
+        # NB: the field is `monitor_advertised` (what the driver CLAIMS). This
+        # line once read `monitor_capable`, a name that never existed — and no
+        # test caught it, because every test avoided touching real hardware.
+        # See tests/test_capture_preflight.py.
+        if not info.monitor_advertised:
             problems.append(f"{self.iface} does not advertise monitor mode")
 
         itype = subprocess.run(

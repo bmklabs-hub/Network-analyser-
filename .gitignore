@@ -9,3 +9,7 @@ dist/
 *.db-shm
 .ruff_cache/
 *.tar.gz
+
+# virtual environments (ADR-30: each machine builds its own; never committed)
+.venv/
+venv/
