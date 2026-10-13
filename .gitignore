@@ -17,3 +17,6 @@ venv/
 # macOS
 .DS_Store
 **/.DS_Store
+
+# local safety copy of the old in-repo ADR log; delete once happy
+docs/.decisions.md.bak-*
