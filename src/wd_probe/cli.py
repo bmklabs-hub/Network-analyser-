@@ -12,6 +12,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from wd_probe.capabilities import probe_adapter, survey_capable_adapters
+from wd_probe.capture.base import CaptureError
 from wd_probe.capture.wireless import WirelessCaptureEngine
 from wd_probe.contracts import (
     CaptureKind,
@@ -108,7 +109,12 @@ def capture(
         )
 
     console.print(f"Capturing {duration}s on [bold]{iface}[/] ch{channel}…")
-    session = engine.capture(Path(out).expanduser(), duration)
+    try:
+        session = engine.capture(Path(out).expanduser(), duration)
+    except CaptureError as e:
+        # An expected, explained refusal — print the instruction, not a traceback.
+        console.print(f"[red bold]Capture refused:[/] {e}")
+        raise typer.Exit(1) from e
 
     q = session.quality
     colour = "green" if q.loss_pct == 0 else ("yellow" if q.loss_pct < 1 else "red")

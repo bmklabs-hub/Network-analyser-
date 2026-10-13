@@ -13,3 +13,7 @@ dist/
 # virtual environments (ADR-30: each machine builds its own; never committed)
 .venv/
 venv/
+
+# macOS
+.DS_Store
+**/.DS_Store
